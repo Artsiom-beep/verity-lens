@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import ipaddress
 import re
+import socket
 import unicodedata
 from typing import Dict
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -199,6 +201,55 @@ def _fetch_via_jina(url: str, timeout: int = 20) -> Dict[str, str]:
     }
 
 
+MAX_REDIRECTS = 5
+
+
+def _is_blocked_address(address: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(address.split("%", 1)[0])
+    except ValueError:
+        return False
+    return not ip.is_global or ip.is_multicast
+
+
+def is_public_http_url(url: str) -> bool:
+    """Reject non-http(s) URLs and hosts that point into the server's own network.
+
+    The API runs on a public host, so fetching user-supplied URLs must not reach
+    localhost, private ranges or cloud metadata endpoints (SSRF).
+    """
+    try:
+        parsed = urlparse((url or "").strip())
+    except ValueError:
+        return False
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False
+    host = parsed.hostname.rstrip(".").lower()
+    if host == "localhost" or host.endswith(".localhost") or _is_blocked_address(host):
+        return False
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or None, proto=socket.IPPROTO_TCP)
+    except (OSError, UnicodeError):
+        # unresolvable here means requests cannot connect either
+        return True
+    return not any(_is_blocked_address(info[4][0]) for info in infos)
+
+
+def safe_get(url: str, timeout: int, headers: Dict[str, str]) -> requests.Response:
+    """requests.get that re-checks every redirect hop with is_public_http_url."""
+    current = url
+    for _ in range(MAX_REDIRECTS + 1):
+        if not is_public_http_url(current):
+            raise ValueError(f"Blocked non-public URL: {current}")
+        response = requests.get(current, timeout=timeout, allow_redirects=False, headers=headers)
+        headers_in = getattr(response, "headers", None) or {}
+        location = headers_in.get("Location") if getattr(response, "is_redirect", False) is True else None
+        if not isinstance(location, str) or not location:
+            return response
+        current = urljoin(current, location)
+    raise ValueError("Too many redirects")
+
+
 def fetch_url_text(
     url: str,
     timeout: int = 15,
@@ -227,12 +278,7 @@ def fetch_url_text(
         "canonical_article_url": canonical_url,
     }
     try:
-        response = requests.get(
-            canonical_url,
-            timeout=timeout,
-            allow_redirects=True,
-            headers={"User-Agent": "Mozilla/5.0"},
-        )
+        response = safe_get(canonical_url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
         if response.status_code == 200 and response.text:
             final_url = canonicalize_url(getattr(response, "url", canonical_url) or canonical_url)
             extracted = _extract_text_from_html(final_url, response.text)

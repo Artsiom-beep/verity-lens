@@ -11,10 +11,12 @@ from pydantic import BaseModel
 try:
     from .factcheck.common_knowledge import add_user_common_fact, list_user_common_facts
     from .factcheck.image_analysis import run_ai_image_check, run_screenshot_factcheck
+    from .factcheck.ingest import is_public_http_url
     from .factcheck.service import run_factcheck
 except ImportError:
     from factcheck.common_knowledge import add_user_common_fact, list_user_common_facts
     from factcheck.image_analysis import run_ai_image_check, run_screenshot_factcheck
+    from factcheck.ingest import is_public_http_url
     from factcheck.service import run_factcheck
 
 app = FastAPI(title="FactCheck API", version="1.0")
@@ -80,10 +82,14 @@ def ready():
 
 @app.post("/factcheck")
 def factcheck(request: FactCheckRequest):
-    if not (request.text or request.url):
+    text = (request.text or "").strip()
+    url = (request.url or "").strip()
+    if not (text or url):
         raise HTTPException(status_code=400, detail={"error": "Provide text or url"})
+    if url and not is_public_http_url(url):
+        raise HTTPException(status_code=400, detail={"error": "Provide a public http(s) URL"})
 
-    result = run_factcheck(text=(request.text or "").strip(), url=(request.url or "").strip())
+    result = run_factcheck(text=text, url=url)
     payload = result.to_public_dict()
     if not payload.get("claim") and request.url and payload["summary"].startswith("The provided URL"):
         raise HTTPException(status_code=400, detail={"error": payload["summary"], "trace": payload.get("trace", {})})

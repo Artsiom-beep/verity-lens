@@ -9,7 +9,7 @@ import requests
 
 from .claims import extract_claims
 from .config import PipelineConfig
-from .ingest import canonicalize_text, canonicalize_url, is_likely_article_url
+from .ingest import canonicalize_text, canonicalize_url, is_likely_article_url, safe_get
 from .retrieval import search_web
 from .schemas import CredibilityResult, EvidenceItem, FactCheckResult, FactCheckTrace
 from .source_registry import classify_source
@@ -264,12 +264,7 @@ def _resolve_google_news_proxy(url: str) -> str:
     if not _is_google_news_proxy(url):
         return url
     try:
-        response = requests.get(
-            url,
-            timeout=5,
-            allow_redirects=True,
-            headers={"User-Agent": "Mozilla/5.0"},
-        )
+        response = safe_get(url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
         resolved = canonicalize_url(response.url)
         if resolved and not _is_google_news_proxy(resolved) and is_likely_article_url(resolved):
             return resolved

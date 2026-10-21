@@ -3544,5 +3544,41 @@ Write-Output 'apk name policy ok'
         mock_retrieve_documents.assert_not_called()
 
 
+class UrlSafetyTests(unittest.TestCase):
+    def test_blocks_internal_and_non_http_urls(self):
+        from factcheck.ingest import is_public_http_url
+
+        for url in [
+            "http://localhost:8001/health",
+            "http://127.0.0.1/",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://10.0.0.5/admin",
+            "http://[::1]/",
+            "ftp://example.com/file",
+            "not a url",
+            "",
+        ]:
+            self.assertFalse(is_public_http_url(url), url)
+        self.assertTrue(is_public_http_url("https://8.8.8.8/"))
+
+    def test_safe_get_does_not_follow_redirect_into_private_network(self):
+        from factcheck import ingest
+
+        redirect = SimpleNamespace(
+            is_redirect=True, headers={"Location": "http://127.0.0.1/secret"}, status_code=302
+        )
+        with patch.object(ingest, "is_public_http_url", side_effect=lambda u: "127.0.0.1" not in u),                 patch.object(ingest.requests, "get", return_value=redirect) as get:
+            with self.assertRaises(ValueError):
+                ingest.safe_get("https://example.com/", timeout=1, headers={})
+        self.assertEqual(get.call_count, 1)
+
+    def test_api_rejects_bad_urls_and_blank_text(self):
+        from api_factcheck import app
+
+        client = TestClient(app)
+        for body in [{"text": "   "}, {"url": "http://localhost:8001/health"}, {"url": "ftp://x.org/a"}]:
+            self.assertEqual(client.post("/factcheck", json=body).status_code, 400, body)
+
+
 if __name__ == "__main__":
     unittest.main()
