@@ -57,6 +57,17 @@ Local-first fact-check engine for text, article URLs, image AI-risk checks, and 
 }
 ```
 
+## Timeline
+
+| When | What was done |
+|---|---|
+| Mar 2026 | First fact-check pipeline: claim extraction, web retrieval, evidence scoring; fixed Google News wrapper handling |
+| Apr 2026 | Better retrieval: site adapters for AP News and BBC, DuckDuckGo fallback, filters for listing and low-match pages |
+| May 2026 | Moved from a fake/real classifier to an evidence-based engine; FastAPI backend, Web UI, Windows desktop app (PyWebView) |
+| End of May 2026 | Flutter Android app, public backend on Render, calibrated news credibility score (Source / Article quality / Corroboration / Risk) |
+| Jun 2026 | Knowledge base with user-added facts, Wikidata fallback, Android "Camera originals" picker, lightweight AI-image risk check |
+| Oct 2026 | Security fix: the public API no longer fetches localhost or private-network URLs (SSRF); stricter input validation |
+
 ## Quick Start
 
 ```powershell
